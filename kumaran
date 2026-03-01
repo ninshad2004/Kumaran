@@ -1,0 +1,196 @@
+#!/usr/bin/env python3
+
+import argparse
+import sys
+import socket
+import time
+from datetime import datetime
+
+from scanner import scan_target
+from risk import get_risk, get_risk_detail
+from output import save_results
+
+
+# ================= COLORS =================
+GREEN = "\033[92m"
+RED = "\033[91m"
+YELLOW = "\033[93m"
+CYAN = "\033[96m"
+BLUE = "\033[94m"
+BOLD = "\033[1m"
+RESET = "\033[0m"
+
+
+# ================= BANNER =================
+BANNER = GREEN + BOLD + r"""
+██╗  ██╗██╗   ██╗███╗   ███╗ █████╗ ██████╗  █████╗ ███╗   ██╗
+██║ ██╔╝██║   ██║████╗ ████║██╔══██╗██╔══██╗██╔══██╗████╗  ██║
+█████╔╝ ██║   ██║██╔████╔██║███████║██████╔╝███████║██╔██╗ ██║
+██╔═██╗ ██║   ██║██║╚██╔╝██║██╔══██║██╔══██╗██╔══██║██║╚██╗██║
+██║  ██╗╚██████╔╝██║ ╚═╝ ██║██║  ██║██║  ██║██║  ██║██║ ╚████║
+╚═╝  ╚═╝ ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝
+""" + RESET
+
+
+# ================= PORT PARSER =================
+def parse_ports(port_str):
+    if not port_str:
+        return list(range(1, 1025))
+
+    ports = set()
+
+    for part in port_str.split(","):
+        part = part.strip()
+        if "-" in part:
+            start, end = part.split("-", 1)
+            ports.update(range(int(start), int(end) + 1))
+        else:
+            ports.add(int(part))
+
+    return sorted(ports)
+
+
+# ================= ARG PARSER =================
+def parse_args():
+    parser = argparse.ArgumentParser(
+        prog="kumaran",
+        description="KUMARAN - Smart Network Security Scanner",
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+
+    parser.add_argument(
+        "--version",
+        action="version",
+        version="KUMARAN v2.0 - Smart Network Security Scanner"
+    )
+
+    parser.add_argument("target", help="Target IP address or hostname")
+    parser.add_argument("-p", "--ports", help="Ports to scan (default: 1-1024)")
+    parser.add_argument("-t", "--threads", type=int, default=150)
+    parser.add_argument("--timeout", type=float, default=1.0)
+    parser.add_argument("-o", "--output", help="Output filename (without extension)")
+    parser.add_argument("-f", choices=["txt", "json", "xml"])
+    parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("--no-banner", action="store_true")
+    parser.add_argument("--no-color", action="store_true")
+
+    return parser.parse_args()
+
+
+# ================= MAIN =================
+def main():
+    args = parse_args()
+
+    if not args.no_banner:
+        print(BANNER)
+        print(CYAN + "KUMARAN v2.0 — Smart Network Security Scanner" + RESET)
+        print(BLUE + "Developer : Ninshad  |  Mode : CLI Security Analysis\n" + RESET)
+
+    try:
+        target_ip = socket.gethostbyname(args.target)
+    except socket.gaierror:
+        print(RED + "[-] Invalid target." + RESET)
+        sys.exit(1)
+
+    port_list = parse_ports(args.ports)
+
+    print(CYAN + f"[+] Target resolved : {args.target} → {target_ip}" + RESET)
+    print(CYAN + f"[+] Ports to scan   : {len(port_list)}" + RESET)
+    print(CYAN + f"[+] Threads         : {args.threads}" + RESET)
+    print(CYAN + f"[+] Timeout         : {args.timeout}s" + RESET)
+    print(CYAN + f"[+] Scan started at : {datetime.now().strftime('%H:%M:%S')}\n" + RESET)
+
+    start_time = time.time()
+
+    open_ports = scan_target(
+        target_ip,
+        port_list,
+        threads=args.threads,
+        timeout=args.timeout,
+        verbose=args.verbose
+    )
+
+    duration = round(time.time() - start_time, 2)
+
+    risk_score = 0
+    results = []
+
+    print("=" * 60)
+    print("                     SCAN RESULTS")
+    print("=" * 60)
+    print(f"{'PORT':<8} {'SERVICE':<20} {'RISK':<12} BANNER")
+    print("-" * 60)
+
+    for item in open_ports:
+        port, service, banner = item
+
+        risk = get_risk(service)
+        detail = get_risk_detail(service, risk)
+
+        if risk == "HIGH":
+            risk_score += 3
+            color = RED
+        elif risk == "MEDIUM":
+            risk_score += 2
+            color = YELLOW
+        elif risk == "LOW":
+            risk_score += 1
+            color = GREEN
+        else:
+            color = CYAN
+
+        risk_display = risk if args.no_color else color + risk + RESET
+
+        print(f"{port:<8} {service:<20} {risk_display:<12} {banner}")
+        print("  → " + detail)
+
+        results.append({
+            "port": port,
+            "service": service,
+            "risk": risk,
+            "banner": banner
+        })
+
+    print("\n" + "=" * 60)
+    print("                     SCAN SUMMARY")
+    print("=" * 60)
+
+    print(f"  Timestamp          : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"  Target             : {target_ip}")
+    print(f"  Ports Scanned      : {len(port_list)}")
+    print(f"  Open Ports Found   : {len(open_ports)}")
+    print(f"  Scan Duration      : {duration}s")
+    print(f"  Threads Used       : {args.threads}")
+    print(f"  Overall Risk Score : {risk_score}")
+
+    if risk_score >= 7:
+        level = "CRITICAL"
+        color = RED
+    elif risk_score >= 4:
+        level = "HIGH"
+        color = RED
+    elif risk_score >= 2:
+        level = "MEDIUM"
+        color = YELLOW
+    elif risk_score > 0:
+        level = "LOW"
+        color = GREEN
+    else:
+        level = "SAFE"
+        color = GREEN
+
+    if args.no_color:
+        print(f"  Overall Risk Level : {level}")
+    else:
+        print(f"  Overall Risk Level : {color}{level}{RESET}")
+
+    print("=" * 60)
+
+    if args.output and args.f:
+        save_results(args.output, args.f, results)
+
+    sys.exit(0 if risk_score < 7 else 1)
+
+
+if __name__ == "__main__":
+    main()
