@@ -1,5 +1,8 @@
 # KUMARAN v2.0 — Smart Network Security Scanner
 
+KUMARAN is a fast multi-threaded CLI network scanner built in Python.
+It scans open ports, detects services, and calculates risk levels.
+
 **Developer:** Ninshad  
 **Language:** Python 3.8+  
 **Style:** Kali Linux CLI tool
